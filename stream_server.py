@@ -13,11 +13,9 @@ Endpoints:
 
 Durdurmak için: Ctrl+C
 """
-import base64
 import json
 import os
 import sys
-import tempfile
 import threading
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from urllib.parse import urlparse, parse_qs, unquote_plus
@@ -41,26 +39,21 @@ except Exception as e:
 
 PORT = int(os.environ.get("PORT", 5001))
 
-# YouTube cookie dosyasını env var'dan yükle (Render ortamında gerekli)
-_COOKIES_FILE: str | None = None
+# YouTube cookie dosyası — Render Secret File olarak yüklenir
+_SECRET_COOKIES = "/etc/secrets/cookies.txt"
+_LOCAL_COOKIES = os.path.join(os.path.dirname(os.path.abspath(__file__)), "cookies.txt")
 
-def _setup_cookies() -> None:
-    global _COOKIES_FILE
-    b64 = os.environ.get("YOUTUBE_COOKIES_B64", "").strip()
-    if not b64:
-        print("[UYARI] YOUTUBE_COOKIES_B64 ayarlanmamis — stream'ler basarisiz olabilir")
-        return
-    try:
-        data = base64.b64decode(b64).decode("utf-8")
-        tmp = tempfile.NamedTemporaryFile(mode="w", suffix=".txt", delete=False)
-        tmp.write(data)
-        tmp.flush()
-        _COOKIES_FILE = tmp.name
-        print(f"[OK] YouTube cookies yuklendi ({len(data)} karakter)")
-    except Exception as e:
-        print(f"[HATA] Cookies yuklenemedi: {e}")
+def _find_cookies_file() -> str | None:
+    if os.path.isfile(_SECRET_COOKIES):
+        print(f"[OK] Cookies bulundu: {_SECRET_COOKIES}")
+        return _SECRET_COOKIES
+    if os.path.isfile(_LOCAL_COOKIES):
+        print(f"[OK] Cookies bulundu (local): {_LOCAL_COOKIES}")
+        return _LOCAL_COOKIES
+    print("[UYARI] cookies.txt bulunamadi — stream'ler basarisiz olabilir")
+    return None
 
-_setup_cookies()
+_COOKIES_FILE = _find_cookies_file()
 
 YDL_OPTS: dict = {
     "format": "bestaudio/best",
