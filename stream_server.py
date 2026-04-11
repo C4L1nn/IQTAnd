@@ -69,10 +69,11 @@ def _find_cookies_file() -> str | None:
 _COOKIES_FILE = _find_cookies_file()
 
 YDL_OPTS: dict = {
-    "format": "bestaudio/best",
+    "format": "bestaudio[ext=m4a]/bestaudio[ext=webm]/bestaudio/best[ext=m4a]/best",
     "quiet": True,
     "no_warnings": True,
     "extract_flat": False,
+    "extractor_args": {"youtube": {"skip": ["dash", "hls"]}},
 }
 if _COOKIES_FILE:
     YDL_OPTS["cookiefile"] = _COOKIES_FILE
