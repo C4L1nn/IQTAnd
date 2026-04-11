@@ -40,10 +40,16 @@ except Exception as e:
 PORT = int(os.environ.get("PORT", 5001))
 
 YDL_OPTS = {
-    "format": "bestaudio[ext=m4a]/bestaudio/best",
+    "format": "bestaudio/best",
     "quiet": True,
     "no_warnings": True,
     "extract_flat": False,
+    # Server ortamında bot tespitini atlatmak için android client kullan
+    "extractor_args": {
+        "youtube": {
+            "player_client": ["android", "web"],
+        }
+    },
 }
 
 # Basit in-memory cache — aynı videoId için tekrar tekrar istek atmayı önler
@@ -61,10 +67,33 @@ def get_stream_url(video_id: str) -> str | None:
                 f"https://www.youtube.com/watch?v={video_id}",
                 download=False,
             )
-            url = info.get("url")
+
+        # Direkt URL'yi bul
+        url = info.get("url")
+
+        # Yoksa requested_formats içinde ara
+        if not url and info.get("requested_formats"):
+            for fmt in info["requested_formats"]:
+                if fmt.get("url"):
+                    url = fmt["url"]
+                    break
+
+        # Yoksa formats listesinde en iyi audio'yu bul
+        if not url and info.get("formats"):
+            audio_fmts = [
+                f for f in info["formats"]
+                if f.get("url") and f.get("vcodec") in ("none", None)
+            ]
+            if audio_fmts:
+                best = max(audio_fmts, key=lambda x: x.get("abr") or x.get("tbr") or 0)
+                url = best["url"]
+
         if url:
             with _cache_lock:
                 _url_cache[video_id] = url
+        else:
+            print(f"[HATA] stream {video_id}: URL bulunamadi, mevcut formatlar: "
+                  f"{[f.get('format_id') for f in info.get('formats', [])][:5]}")
         return url
     except Exception as e:
         print(f"[HATA] stream {video_id}: {e}")
