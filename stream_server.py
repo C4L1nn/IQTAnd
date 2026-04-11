@@ -73,6 +73,11 @@ YDL_OPTS: dict = {
     "quiet": True,
     "no_warnings": True,
     "extract_flat": False,
+    "extractor_args": {
+        "youtube": {
+            "player_client": ["tv_embedded", "web"],
+        }
+    },
 }
 if _COOKIES_FILE:
     YDL_OPTS["cookiefile"] = _COOKIES_FILE
