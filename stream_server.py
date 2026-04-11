@@ -44,12 +44,6 @@ YDL_OPTS = {
     "quiet": True,
     "no_warnings": True,
     "extract_flat": False,
-    "extractor_args": {
-        "youtube": {
-            # ios client sunucu IP'lerinde en güvenilir seçenek
-            "player_client": ["ios"],
-        }
-    },
 }
 
 # Basit in-memory cache — aynı videoId için tekrar tekrar istek atmayı önler
@@ -97,7 +91,7 @@ def get_stream_url(video_id: str) -> str | None:
         return url
     except Exception as e:
         print(f"[HATA] stream {video_id}: {e}")
-        return None
+        raise  # caller'a ilet
 
 
 def _fmt_duration(seconds) -> str:
@@ -160,13 +154,18 @@ class StreamHandler(BaseHTTPRequestHandler):
             self._send_json(400, {"error": "videoId parameter required"})
             return
         print(f"[>] Stream: {video_id}")
-        url = get_stream_url(video_id)
+        try:
+            url = get_stream_url(video_id)
+        except Exception as e:
+            print(f"[FAIL] {video_id}: {e}")
+            self._send_json(503, {"error": str(e)})
+            return
         if url:
             print(f"[OK] {video_id[:12]} → {url[:60]}...")
             self._send_json(200, {"url": url})
         else:
-            print(f"[FAIL] {video_id}")
-            self._send_json(503, {"error": "Could not resolve stream URL"})
+            print(f"[FAIL] {video_id}: URL None")
+            self._send_json(503, {"error": "URL could not be extracted"})
 
     def _handle_search(self, params):
         q = unquote_plus(params.get("q", [""])[0]).strip()
