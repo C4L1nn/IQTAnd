@@ -171,13 +171,29 @@ class StreamHandler(BaseHTTPRequestHandler):
         params = parse_qs(parsed.query)
 
         if parsed.path == "/health":
-            self._send_json(200, {"status": "ok"})
+            self._send_json(200, {"status": "ok", "cookies": _COOKIES_FILE})
+        elif parsed.path == "/debug":
+            self._handle_debug(params)
         elif parsed.path == "/stream":
             self._handle_stream(params)
         elif parsed.path == "/search":
             self._handle_search(params)
         else:
             self._send_json(404, {"error": "Not found"})
+
+    def _handle_debug(self, params):
+        video_id = params.get("videoId", ["4NRXx6U8ABQ"])[0]
+        opts = {**YDL_OPTS, "format": None, "listformats": True, "quiet": False}
+        try:
+            with YoutubeDL(opts) as ydl:
+                info = ydl.extract_info(f"https://www.youtube.com/watch?v={video_id}", download=False)
+            fmts = [
+                {"id": f.get("format_id"), "ext": f.get("ext"), "abr": f.get("abr"), "vcodec": f.get("vcodec")}
+                for f in (info.get("formats") or [])
+            ]
+            self._send_json(200, {"cookies_file": _COOKIES_FILE, "format_count": len(fmts), "formats": fmts[:20]})
+        except Exception as e:
+            self._send_json(503, {"cookies_file": _COOKIES_FILE, "error": str(e)})
 
     def _handle_stream(self, params):
         video_id = params.get("videoId", [None])[0]
