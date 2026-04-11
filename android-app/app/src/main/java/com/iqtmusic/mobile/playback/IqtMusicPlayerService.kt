@@ -43,7 +43,7 @@ class IqtMusicPlayerService : MediaSessionService() {
     override fun onCreate() {
         super.onCreate()
         val container = (application as IqtMusicApp).container
-        streamResolver = StreamResolver { container.getServerUrl() }
+        streamResolver = StreamResolver()
 
         val exo = ExoPlayer.Builder(this).build()
         player = exo
