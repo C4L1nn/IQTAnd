@@ -44,10 +44,10 @@ YDL_OPTS = {
     "quiet": True,
     "no_warnings": True,
     "extract_flat": False,
-    # Server ortamında bot tespitini atlatmak için android client kullan
     "extractor_args": {
         "youtube": {
-            "player_client": ["android", "web"],
+            # ios client sunucu IP'lerinde en güvenilir seçenek
+            "player_client": ["ios"],
         }
     },
 }
