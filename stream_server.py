@@ -15,6 +15,7 @@ Durdurmak için: Ctrl+C
 """
 import json
 import os
+import shutil
 import sys
 import threading
 from http.server import HTTPServer, BaseHTTPRequestHandler
@@ -40,18 +41,30 @@ except Exception as e:
 PORT = int(os.environ.get("PORT", 5001))
 
 # YouTube cookie dosyası — Render Secret File olarak yüklenir
+# /etc/secrets/ read-only olduğu için /tmp/'a kopyalanır
 _SECRET_COOKIES = "/etc/secrets/cookies.txt"
 _LOCAL_COOKIES = os.path.join(os.path.dirname(os.path.abspath(__file__)), "cookies.txt")
+_TMP_COOKIES = "/tmp/yt_cookies.txt"
 
 def _find_cookies_file() -> str | None:
+    source = None
     if os.path.isfile(_SECRET_COOKIES):
-        print(f"[OK] Cookies bulundu: {_SECRET_COOKIES}")
-        return _SECRET_COOKIES
-    if os.path.isfile(_LOCAL_COOKIES):
-        print(f"[OK] Cookies bulundu (local): {_LOCAL_COOKIES}")
-        return _LOCAL_COOKIES
-    print("[UYARI] cookies.txt bulunamadi — stream'ler basarisiz olabilir")
-    return None
+        source = _SECRET_COOKIES
+    elif os.path.isfile(_LOCAL_COOKIES):
+        source = _LOCAL_COOKIES
+
+    if source is None:
+        print("[UYARI] cookies.txt bulunamadi — stream'ler basarisiz olabilir")
+        return None
+
+    try:
+        shutil.copy2(source, _TMP_COOKIES)
+        os.chmod(_TMP_COOKIES, 0o600)
+        print(f"[OK] Cookies kopyalandi: {source} -> {_TMP_COOKIES}")
+        return _TMP_COOKIES
+    except Exception as e:
+        print(f"[HATA] Cookies kopyalanamadi: {e}")
+        return None
 
 _COOKIES_FILE = _find_cookies_file()
 
