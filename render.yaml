@@ -1,0 +1,7 @@
+services:
+  - type: web
+    name: iqtmusic-server
+    runtime: python
+    buildCommand: pip install -r requirements_server.txt
+    startCommand: python stream_server.py
+    plan: free

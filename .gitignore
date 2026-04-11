@@ -1,0 +1,32 @@
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.pytest_cache/
+.mypy_cache/
+
+build/
+dist/
+dist_manifest.json
+iqtMusic_patch.zip
+IQTMusic_Kurulum.exe
+
+.claude/
+
+# VLC binaries (too large for GitHub)
+bin/
+plugins/
+libvlc.dll
+libvlccore.dll
+
+# Android build outputs & caches
+android-app/.gradle/
+android-app/.gradle-home/
+android-app/.android/
+android-app/app/build/
+android-app/build/
+android-app/local.properties
+android-app/.idea/
+
+# Assets (large media files)
+assets/

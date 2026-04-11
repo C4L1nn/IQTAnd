@@ -1,0 +1,26 @@
+# iqtMusic — Python bağımlılıkları
+# Kurulum: pip install -r requirements.txt
+
+# Qt arayüz kütüphanesi
+PySide6>=6.5.0
+
+# YouTube Music API
+ytmusicapi>=1.3.0
+
+# YouTube ses indirici
+yt-dlp>=2024.1.0
+
+# HTTP istemcisi
+requests>=2.31.0
+
+# VLC Python bağlaması
+python-vlc>=3.0.12122
+
+# İsteğe bağlı: Discord Rich Presence
+pypresence>=4.3.0
+
+# İsteğe bağlı: Medya tuşu desteği (global hotkey)
+pynput>=1.7.6
+
+# Beraber Dinle — MQTT tabanlı gerçek zamanlı senkronizasyon
+paho-mqtt>=1.6.1
