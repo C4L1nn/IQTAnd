@@ -13,9 +13,11 @@ Endpoints:
 
 Durdurmak için: Ctrl+C
 """
+import base64
 import json
-import sys
 import os
+import sys
+import tempfile
 import threading
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from urllib.parse import urlparse, parse_qs, unquote_plus
@@ -39,12 +41,35 @@ except Exception as e:
 
 PORT = int(os.environ.get("PORT", 5001))
 
-YDL_OPTS = {
+# YouTube cookie dosyasını env var'dan yükle (Render ortamında gerekli)
+_COOKIES_FILE: str | None = None
+
+def _setup_cookies() -> None:
+    global _COOKIES_FILE
+    b64 = os.environ.get("YOUTUBE_COOKIES_B64", "").strip()
+    if not b64:
+        print("[UYARI] YOUTUBE_COOKIES_B64 ayarlanmamis — stream'ler basarisiz olabilir")
+        return
+    try:
+        data = base64.b64decode(b64).decode("utf-8")
+        tmp = tempfile.NamedTemporaryFile(mode="w", suffix=".txt", delete=False)
+        tmp.write(data)
+        tmp.flush()
+        _COOKIES_FILE = tmp.name
+        print(f"[OK] YouTube cookies yuklendi ({len(data)} karakter)")
+    except Exception as e:
+        print(f"[HATA] Cookies yuklenemedi: {e}")
+
+_setup_cookies()
+
+YDL_OPTS: dict = {
     "format": "bestaudio/best",
     "quiet": True,
     "no_warnings": True,
     "extract_flat": False,
 }
+if _COOKIES_FILE:
+    YDL_OPTS["cookiefile"] = _COOKIES_FILE
 
 # Basit in-memory cache — aynı videoId için tekrar tekrar istek atmayı önler
 _url_cache: dict[str, str] = {}
