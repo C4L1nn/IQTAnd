@@ -15,10 +15,13 @@ Durdurmak için: Ctrl+C
 """
 import json
 import os
+import re
 import shutil
 import sys
 import threading
+import time
 from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime, timezone
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 from urllib.parse import urlparse, parse_qs, unquote_plus
 
@@ -40,6 +43,16 @@ except Exception as e:
     print(f"[UYARI] ytmusicapi kullanilamiyor: {e} — arama devre disi")
 
 PORT = int(os.environ.get("PORT", 5001))
+SERVER_TOKEN = os.environ.get("IQTMUSIC_SERVER_TOKEN", "").strip()
+ENABLE_DEBUG = os.environ.get("IQTMUSIC_ENABLE_DEBUG", "").strip().lower() in {"1", "true", "yes", "on"}
+VERBOSE_ERRORS = os.environ.get("IQTMUSIC_VERBOSE_ERRORS", "").strip().lower() in {"1", "true", "yes", "on"}
+RATE_LIMIT_MAX = int(os.environ.get("IQTMUSIC_RATE_LIMIT_MAX", "120"))
+RATE_LIMIT_WINDOW = int(os.environ.get("IQTMUSIC_RATE_LIMIT_WINDOW", "60"))
+TELEMETRY_ENABLED = os.environ.get("IQTMUSIC_TELEMETRY_ENABLED", "1").strip().lower() not in {"0", "false", "no", "off"}
+UPSTASH_URL   = os.environ.get("UPSTASH_REDIS_REST_URL", "").strip()
+UPSTASH_TOKEN = os.environ.get("UPSTASH_REDIS_REST_TOKEN", "").strip()
+VIDEO_ID_RE   = re.compile(r"^[A-Za-z0-9_-]{6,20}$")
+INSTALL_ID_RE = re.compile(r"^[A-Za-z0-9_-]{16,64}$")
 
 # YouTube cookie dosyası — Render Secret File olarak yüklenir
 # /etc/secrets/ read-only olduğu için /tmp/'a kopyalanır
@@ -94,6 +107,57 @@ _stream_waiters_lock = threading.Lock()
 _prefetching: set[str] = set()
 _prefetch_lock = threading.Lock()
 _prefetch_pool = ThreadPoolExecutor(max_workers=3, thread_name_prefix="iqt-stream-prefetch")
+_rate_lock = threading.Lock()
+_rate_hits: dict[str, list[float]] = {}
+
+
+def _public_error(exc: Exception | str) -> str:
+    if VERBOSE_ERRORS:
+        return str(exc)
+    return "Stream service unavailable"
+
+
+def _valid_video_id(video_id: str) -> bool:
+    return bool(VIDEO_ID_RE.match(str(video_id or "").strip()))
+
+
+def _safe_url_label(raw_url: str) -> str:
+    try:
+        parsed = urlparse(raw_url)
+        path = parsed.path or ""
+        if len(path) > 28:
+            path = path[:28] + "..."
+        return f"{parsed.netloc}{path}"
+    except Exception:
+        return "<stream-url>"
+
+
+def _clean_str(value, max_len: int) -> str:
+    text = "".join(ch for ch in str(value or "").strip() if ch.isprintable())
+    return text[:max_len]
+
+
+def _upstash(cmd: list) -> None:
+    if not UPSTASH_URL:
+        return
+    try:
+        import requests as _req
+        _req.post(
+            UPSTASH_URL,
+            headers={"Authorization": f"Bearer {UPSTASH_TOKEN}"},
+            json=cmd,
+            timeout=3,
+        )
+    except Exception:
+        pass
+
+
+def _record_ping(install_id: str) -> None:
+    today = datetime.now(timezone.utc).date().isoformat()
+    _upstash(["SADD", "iqt:all", install_id])
+    _upstash(["SADD", f"iqt:day:{today}", install_id])
+    _upstash(["EXPIRE", f"iqt:day:{today}", 86400 * 35])
+
 
 def _extract_stream_url(video_id: str) -> str | None:
     with _cache_lock:
@@ -252,25 +316,92 @@ def search_youtube_music(query: str, limit: int = 20) -> list[dict]:
 
 
 class StreamHandler(BaseHTTPRequestHandler):
+    def do_POST(self):
+        parsed = urlparse(self.path)
+
+        if parsed.path != "/telemetry":
+            self._send_json(404, {"error": "Not found"})
+            return
+        if self._is_rate_limited():
+            self._send_json(429, {"error": "Too many requests"})
+            return
+        self._handle_telemetry()
+
     def do_GET(self):
         parsed = urlparse(self.path)
         params = parse_qs(parsed.query)
 
         if parsed.path == "/health":
-            self._send_json(200, {"status": "ok", "cookies": _COOKIES_FILE})
-        elif parsed.path == "/debug":
+            self._send_json(200, {"status": "ok", "cookies_loaded": bool(_COOKIES_FILE)})
+            return
+
+        if not self._check_access():
+            return
+
+        if self._is_rate_limited():
+            self._send_json(429, {"error": "Too many requests"})
+            return
+
+        if parsed.path == "/debug":
+            if not ENABLE_DEBUG:
+                self._send_json(404, {"error": "Not found"})
+                return
             self._handle_debug(params)
-        elif parsed.path == "/prefetch":
+            return
+        if parsed.path == "/prefetch":
             self._handle_prefetch(params)
-        elif parsed.path == "/stream":
+            return
+        if parsed.path == "/stream":
             self._handle_stream(params)
-        elif parsed.path == "/search":
+            return
+        if parsed.path == "/search":
             self._handle_search(params)
-        else:
-            self._send_json(404, {"error": "Not found"})
+            return
+        self._send_json(404, {"error": "Not found"})
+
+    def _client_ip(self) -> str:
+        forwarded = self.headers.get("X-Forwarded-For", "")
+        if forwarded:
+            return forwarded.split(",", 1)[0].strip()
+        return self.client_address[0] if self.client_address else "unknown"
+
+    def _check_access(self) -> bool:
+        if not SERVER_TOKEN:
+            return True
+        if self._auth_token() == SERVER_TOKEN:
+            return True
+        self._send_json(401, {"error": "Unauthorized"})
+        return False
+
+    def _auth_token(self) -> str:
+        auth = self.headers.get("Authorization", "")
+        token = ""
+        if auth.lower().startswith("bearer "):
+            token = auth[7:].strip()
+        return token or self.headers.get("X-IQTMusic-Token", "").strip()
+
+    def _is_rate_limited(self) -> bool:
+        if RATE_LIMIT_MAX <= 0 or RATE_LIMIT_WINDOW <= 0:
+            return False
+        now = time.monotonic()
+        cutoff = now - RATE_LIMIT_WINDOW
+        ip = self._client_ip()
+        with _rate_lock:
+            hits = [ts for ts in _rate_hits.get(ip, []) if ts >= cutoff]
+            limited = len(hits) >= RATE_LIMIT_MAX
+            if not limited:
+                hits.append(now)
+            _rate_hits[ip] = hits
+            for key in list(_rate_hits.keys()):
+                if key != ip and not [ts for ts in _rate_hits[key] if ts >= cutoff]:
+                    _rate_hits.pop(key, None)
+        return limited
 
     def _handle_debug(self, params):
         video_id = params.get("videoId", ["4NRXx6U8ABQ"])[0]
+        if not _valid_video_id(video_id):
+            self._send_json(400, {"error": "Invalid videoId"})
+            return
         opts = {**YDL_OPTS, "format": None, "listformats": True, "quiet": False}
         try:
             with YoutubeDL(opts) as ydl:
@@ -279,24 +410,27 @@ class StreamHandler(BaseHTTPRequestHandler):
                 {"id": f.get("format_id"), "ext": f.get("ext"), "abr": f.get("abr"), "vcodec": f.get("vcodec")}
                 for f in (info.get("formats") or [])
             ]
-            self._send_json(200, {"cookies_file": _COOKIES_FILE, "format_count": len(fmts), "formats": fmts[:20]})
+            self._send_json(200, {"cookies_loaded": bool(_COOKIES_FILE), "format_count": len(fmts), "formats": fmts[:20]})
         except Exception as e:
-            self._send_json(503, {"cookies_file": _COOKIES_FILE, "error": str(e)})
+            self._send_json(503, {"cookies_loaded": bool(_COOKIES_FILE), "error": _public_error(e)})
 
     def _handle_stream(self, params):
         video_id = params.get("videoId", [None])[0]
         if not video_id:
             self._send_json(400, {"error": "videoId parameter required"})
             return
+        if not _valid_video_id(video_id):
+            self._send_json(400, {"error": "Invalid videoId"})
+            return
         print(f"[>] Stream: {video_id}")
         try:
             url = get_stream_url(video_id)
         except Exception as e:
             print(f"[FAIL] {video_id}: {e}")
-            self._send_json(503, {"error": str(e)})
+            self._send_json(503, {"error": _public_error(e)})
             return
         if url:
-            print(f"[OK] {video_id[:12]} -> {url[:60]}...")
+            print(f"[OK] {video_id[:12]} -> {_safe_url_label(url)}")
             self._send_json(200, {"url": url})
         else:
             print(f"[FAIL] {video_id}: URL None")
@@ -309,6 +443,7 @@ class StreamHandler(BaseHTTPRequestHandler):
             for group in params.get("videoIds", [])
             for item in group.split(",")
         )
+        raw_ids = [video_id for video_id in raw_ids if _valid_video_id(video_id)]
         queued = schedule_prefetch(raw_ids)
         self._send_json(202, {"queued": queued, "count": len(queued)})
 
@@ -317,16 +452,38 @@ class StreamHandler(BaseHTTPRequestHandler):
         if not q:
             self._send_json(400, {"error": "q parameter required"})
             return
+        if len(q) > 120:
+            self._send_json(400, {"error": "q parameter too long"})
+            return
         print(f"[>] Search: {q!r}")
         results = search_youtube_music(q)
         schedule_prefetch([item.get("videoId", "") for item in results[:3]], limit=3)
         print(f"[OK] {len(results)} sonuc")
         self._send_json(200, results)
 
+    def _handle_telemetry(self):
+        if not TELEMETRY_ENABLED:
+            self._send_json(404, {"error": "Not found"})
+            return
+        try:
+            length = int(self.headers.get("Content-Length", "0") or "0")
+            raw = self.rfile.read(min(length, 4096))
+            payload = json.loads(raw.decode("utf-8"))
+        except Exception:
+            self._send_json(400, {"error": "Invalid request"})
+            return
+        install_id = _clean_str(payload.get("install_id"), 64)
+        if not INSTALL_ID_RE.match(install_id):
+            self._send_json(400, {"error": "Invalid install_id"})
+            return
+        threading.Thread(target=_record_ping, args=(install_id,), daemon=True).start()
+        self._send_json(202, {"ok": True})
+
     def _send_json(self, code: int, data):
         body = json.dumps(data, ensure_ascii=False).encode("utf-8")
         self.send_response(code)
         self.send_header("Content-Type", "application/json; charset=utf-8")
+        self.send_header("Cache-Control", "no-store")
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()
         self.wfile.write(body)
