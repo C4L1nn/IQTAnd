@@ -1,0 +1,91 @@
+Güncelleme Yaptığında (her seferinde):
+1. Kodu değiştir  (örn. bir bug fix)
+2. constants.py → APP_VERSION = "1.0.2"  ← sürümü artır
+3. pyinstaller iqtMusic.spec             → yeni exe build al
+4. python create_patch.py               → SADECE değişenleri alır
+                                           dist_manifest.json güncellenir
+5. GitHub → Release → v1.0.2 → zip yükle → publish
+Exe'yi gerçekten değiştirirsen (ikon, sürüm manifest vs.) → python create_patch.py --include-exe ile zorla eklenebilir
+
+Özet:
+Adım	Ne yapıyorsun
+Kod değiştir	Normal geliştirme
+APP_VERSION artır	1.0.1 → 1.0.2
+PyInstaller	Yeni exe üretir
+create_patch.py	Değişen dosyaları otomatik bulur
+GitHub Release	Tag = APP_VERSION, zip'i yükle
+Tek kural:
+APP_VERSION ile GitHub tag'i her zaman aynı olmalı.
+
+constants.py → APP_VERSION = "1.0.2"
+GitHub tag   → v1.0.2                ✓
+
+Adım 1 — core/constants.py:
+
+APP_VERSION = "1.0.1"
+
+Adım 2 — Derle:
+
+cd "C:\Users\Aykut\Desktop\iqtMusic v2"
+pyinstaller iqtMusic.spec
+
+Adım 3 — Patch oluştur:
+
+python create_patch.py
+
+Adım 4 — GitHub'da mevcut v1.0.1 release'ini açın → eski patch.zip'i silin → yeni iqtMusic_patch.zip'i yükleyin → Update release
+
+---------------------------------------
+
+1. Kodu değiştir
+Neyi değiştirdiysen değiştir (bug fix, yeni özellik vs.)
+
+2. Sürüm numarasını artır
+core/constants.py:
+
+APP_VERSION = "1.0.1"   # 1.0.0'dan 1.0.1'e
+
+3. Derle
+cd "C:\Users\Aykut\Desktop\iqtMusic v2"
+pyinstaller iqtMusic.spec
+
+4. Patch zip oluştur
+python create_patch.py
+
+Çıktı:
+
++ iqtMusic.exe     3.2 MB
+Patch boyutu: 3.2 MB  (tam dist: 261 MB)
+Dosya hazır: iqtMusic_patch.zip
+
+5. GitHub'a yükle
+github.com/C4L1nn/iqtMusic → Releases → Draft new release
+
+Tag           : v1.0.1
+Title         : iqtMusic v1.0.1
+Description   : - Şu düzeltildi
+                - Şu eklendi
+
+Attach binaries alanına iqtMusic_patch.zip sürükle bırak → Publish release
+
+Kullanıcı Tarafında Ne Olur
+Kullanıcı eski sürümle programı açar:
+
+Program açılır
+  ↓
+GitHub'a sorar → "v1.0.1 var, bende v1.0.0"
+  ↓
+Güncelleme penceresi açılır → "3.2 MB"
+  ↓
+"Güncelle" tıklar → 3.2 MB iner
+  ↓
+UAC onayı → program kapanır
+  ↓
+PowerShell sadece iqtMusic.exe'yi değiştirir
+  ↓
+Program otomatik açılır — bitti
+
+Kurulum yok, uninstall yok. Sadece exe değişir.
+
+Önemli Kural
+iqtMusic_patch.zip adında "patch" kelimesi olmalı — updater bunu arıyor. Başka isim verirsen bulamaz, tam setup arar.

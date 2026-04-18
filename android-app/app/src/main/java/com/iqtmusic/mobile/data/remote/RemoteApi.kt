@@ -69,5 +69,16 @@ private data class RemoteTrack(
         durationLabel = durationLabel,
         coverUrl = coverUrl?.takeIf { it.isNotBlank() },
         videoId = videoId ?: id.removePrefix("yt-"),
+        durationMs = parseDurationLabel(durationLabel),
     )
+}
+
+/** "3:45" veya "1:02:33" → milisaniye */
+private fun parseDurationLabel(label: String): Long {
+    val parts = label.trim().split(":").mapNotNull { it.toLongOrNull() }
+    return when (parts.size) {
+        2 -> (parts[0] * 60 + parts[1]) * 1000
+        3 -> (parts[0] * 3600 + parts[1] * 60 + parts[2]) * 1000
+        else -> 0L
+    }
 }

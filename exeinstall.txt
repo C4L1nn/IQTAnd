@@ -1,0 +1,19 @@
+cd C:\Users\Aykut\Desktop\iqtMusic v2
+pyinstaller --noconfirm --clean --windowed --onedir ^
+  --name iqtMusic ^
+  --icon iqticon.ico ^
+  --paths . ^
+  --collect-all yt_dlp ^
+  --collect-all ytmusicapi ^
+  --copy-metadata yt-dlp ^
+  --copy-metadata ytmusicapi ^
+  --hidden-import PySide6.QtSvg ^
+  --hidden-import PySide6.QtNetwork ^
+  --hidden-import pynput.keyboard._win32 ^
+  --add-data "assets;assets" ^
+  --add-data "bin;bin" ^
+  --add-data "plugins;plugins" ^
+  --add-data "iqticon.ico;." ^
+  --add-binary "libvlc.dll;." ^
+  --add-binary "libvlccore.dll;." ^
+  main.py

@@ -1,25 +1,21 @@
 package com.iqtmusic.mobile.feature.settings
 
+import android.webkit.CookieManager
+import android.webkit.WebView
+import android.webkit.WebViewClient
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.AccountCircle
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.Close
-import androidx.compose.material.icons.rounded.HelpOutline
-import androidx.compose.material.icons.rounded.Wifi
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.ElevatedCard
-import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
@@ -27,14 +23,24 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.viewinterop.AndroidView
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import com.iqtmusic.mobile.MainUiState
 import com.iqtmusic.mobile.ServerStatus
+import com.iqtmusic.mobile.ui.components.IqtInfoPill
+import com.iqtmusic.mobile.ui.components.IqtPanel
+import com.iqtmusic.mobile.ui.components.IqtScreenHeader
+import com.iqtmusic.mobile.ui.components.IqtSectionHeader
+import com.iqtmusic.mobile.ui.components.iqtOutlinedTextFieldColors
+import com.iqtmusic.mobile.ui.components.iqtPrimaryButtonColors
+import com.iqtmusic.mobile.ui.components.iqtSecondaryButtonColors
+import com.iqtmusic.mobile.ui.theme.iqtPalette
 
 @Composable
 fun SettingsScreen(
@@ -44,109 +50,113 @@ fun SettingsScreen(
 ) {
     var urlInput by rememberSaveable(uiState.serverUrl) { mutableStateOf(uiState.serverUrl) }
     val isDirty = urlInput.trim() != uiState.serverUrl
+    var showYouTubeLogin by rememberSaveable { mutableStateOf(false) }
+    var isYouTubeLoggedIn by remember {
+        mutableStateOf(
+            (CookieManager.getInstance().getCookie("https://www.youtube.com") ?: "").contains("SAPISID"),
+        )
+    }
 
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .verticalScroll(rememberScrollState())
-            .padding(20.dp),
-        verticalArrangement = Arrangement.spacedBy(20.dp),
+    if (showYouTubeLogin) {
+        Dialog(
+            onDismissRequest = {
+                showYouTubeLogin = false
+                CookieManager.getInstance().flush()
+                isYouTubeLoggedIn =
+                    (CookieManager.getInstance().getCookie("https://www.youtube.com") ?: "").contains("SAPISID")
+            },
+            properties = DialogProperties(usePlatformDefaultWidth = false),
+        ) {
+            AndroidView(
+                modifier = Modifier.fillMaxSize(),
+                factory = { ctx ->
+                    WebView(ctx).apply {
+                        settings.javaScriptEnabled = true
+                        settings.domStorageEnabled = true
+                        CookieManager.getInstance().setAcceptCookie(true)
+                        CookieManager.getInstance().setAcceptThirdPartyCookies(this, true)
+                        webViewClient = WebViewClient()
+                        loadUrl("https://accounts.google.com/signin/v2/identifier?service=youtube&hl=tr")
+                    }
+                },
+            )
+        }
+    }
+
+    LazyColumn(
+        modifier = Modifier.fillMaxSize(),
+        contentPadding = PaddingValues(horizontal = 20.dp, vertical = 20.dp),
+        verticalArrangement = Arrangement.spacedBy(18.dp),
     ) {
-        Text("Ayarlar", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+        item {
+            IqtScreenHeader(
+                kicker = "ayarlar",
+                title = "Ayarlar",
+            )
+        }
 
-        // Server URL card
-        ElevatedCard {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(20.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp),
+        item {
+            IqtPanel(
+                modifier = Modifier.fillMaxWidth(),
+                accentAmount = if (uiState.serverStatus == ServerStatus.ONLINE) 0.14f else 0f,
             ) {
-                Text("Sunucu Adresi", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
-                Text(
-                    "stream_server.py'nin çalıştığı adres. " +
-                        "Render.com'a deploy edersen oradan aldığın URL'yi gir.",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-
+                IqtSectionHeader(title = "Baglanti adresi")
                 OutlinedTextField(
                     value = urlInput,
                     onValueChange = { urlInput = it },
                     modifier = Modifier.fillMaxWidth(),
-                    label = { Text("https://iqtmusic-xxxx.onrender.com") },
+                    label = { Text("localhost:5001 veya https://...") },
                     singleLine = true,
+                    colors = iqtOutlinedTextFieldColors(),
                 )
-
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(12.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
+                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     Button(
-                        onClick = {
-                            onSaveServerUrl(urlInput.trim())
-                        },
+                        onClick = { onSaveServerUrl(urlInput.trim()) },
                         enabled = isDirty,
+                        colors = iqtPrimaryButtonColors(),
                     ) {
                         Text("Kaydet")
                     }
                     OutlinedButton(
                         onClick = onCheckConnection,
                         enabled = uiState.serverUrl.isNotBlank() && uiState.serverStatus != ServerStatus.CHECKING,
+                        colors = iqtSecondaryButtonColors(),
                     ) {
-                        Text("Bağlantıyı Test Et")
+                        Text("Baglantiyi test et")
                     }
                 }
-
-                // Connection status
                 ConnectionStatus(uiState.serverStatus)
             }
         }
 
-        // How-to card
-        ElevatedCard {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(20.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    Icon(Icons.Rounded.HelpOutline, contentDescription = null)
-                    Text("Render.com'a Nasıl Deploy Edilir?", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
-                }
-
-                Spacer(Modifier.height(4.dp))
-
-                listOf(
-                    "1. render.com'da ücretsiz hesap oluştur",
-                    "2. GitHub'a iqtMusic projesini push et",
-                    "3. New → Web Service → GitHub repo'nu seç",
-                    "4. Build Command: pip install -r requirements_server.txt",
-                    "5. Start Command: python stream_server.py",
-                    "6. Deploy et → URL'yi buraya yapıştır",
-                ).forEach { step ->
-                    Text(
-                        step,
-                        style = MaterialTheme.typography.bodyMedium,
-                        modifier = Modifier.padding(start = 4.dp),
+        item {
+            IqtPanel(modifier = Modifier.fillMaxWidth()) {
+                IqtSectionHeader(title = "YouTube oturumu")
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    IqtInfoPill(
+                        label = if (isYouTubeLoggedIn) "Oturum hazir" else "Oturum kapali",
+                        icon = Icons.Rounded.AccountCircle,
+                        active = isYouTubeLoggedIn,
                     )
                 }
-
-                Spacer(Modifier.height(4.dp))
-
-                Text(
-                    "Yerel kullanım için: python stream_server.py çalıştır, " +
-                        "adb reverse tcp:5001 tcp:5001 komutunu ver ve " +
-                        "adres olarak http://localhost:5001 gir.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
+                if (isYouTubeLoggedIn) {
+                    OutlinedButton(
+                        onClick = { showYouTubeLogin = true },
+                        colors = iqtSecondaryButtonColors(),
+                    ) {
+                        Text("Oturumu yenile")
+                    }
+                } else {
+                    Button(
+                        onClick = { showYouTubeLogin = true },
+                        colors = iqtPrimaryButtonColors(),
+                    ) {
+                        Text("Giris yap")
+                    }
+                }
             }
         }
+
     }
 }
 
@@ -154,26 +164,22 @@ fun SettingsScreen(
 private fun ConnectionStatus(status: ServerStatus) {
     when (status) {
         ServerStatus.UNCHECKED -> Unit
-        ServerStatus.CHECKING -> Row(
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
-            Text("Kontrol ediliyor...", style = MaterialTheme.typography.bodySmall)
+        ServerStatus.CHECKING -> Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            CircularProgressIndicator(strokeWidth = 2.dp, modifier = Modifier.size(16.dp))
+            Text(
+                text = "Kontrol ediliyor...",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.iqtPalette.textSecondary,
+            )
         }
-        ServerStatus.ONLINE -> Row(
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            Icon(Icons.Rounded.Check, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(18.dp))
-            Text("Sunucu çevrimiçi", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
-        }
-        ServerStatus.OFFLINE -> Row(
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            Icon(Icons.Rounded.Close, contentDescription = null, tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(18.dp))
-            Text("Sunucuya ulaşılamıyor", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
-        }
+        ServerStatus.ONLINE -> IqtInfoPill(
+            label = "Sunucu cevrimici",
+            icon = Icons.Rounded.Check,
+            active = true,
+        )
+        ServerStatus.OFFLINE -> IqtInfoPill(
+            label = "Sunucuya ulasilamiyor",
+            icon = Icons.Rounded.Close,
+        )
     }
 }

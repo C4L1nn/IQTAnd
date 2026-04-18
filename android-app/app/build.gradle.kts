@@ -78,7 +78,7 @@ dependencies {
     implementation("androidx.media3:media3-session:1.4.1")
     implementation("androidx.media3:media3-ui:1.4.1")
     implementation("io.coil-kt:coil-compose:2.7.0")
-    implementation("com.github.TeamNewPipe:NewPipeExtractor:v0.24.2")
+    implementation("androidx.webkit:webkit:1.11.0")
 
     debugImplementation("androidx.compose.ui:ui-tooling")
     debugImplementation("androidx.compose.ui:ui-test-manifest")

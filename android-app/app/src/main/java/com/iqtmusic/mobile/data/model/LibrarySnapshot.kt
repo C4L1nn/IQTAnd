@@ -3,6 +3,9 @@ package com.iqtmusic.mobile.data.model
 import kotlinx.serialization.Serializable
 
 @Serializable
+enum class RepeatMode { NONE, ONE, ALL }
+
+@Serializable
 data class ListeningStats(
     val totalMinutes: Int,
     val weeklyMinutes: Int,
@@ -30,6 +33,13 @@ data class LibrarySnapshot(
     val collab: CollabSessionState,
     val currentTrackId: String?,
     val isPlaying: Boolean,
+    val shuffleEnabled: Boolean = false,
+    val repeatMode: RepeatMode = RepeatMode.NONE,
+    // Gerçek istatistik ham verisi
+    val artistPlayCounts: Map<String, Int> = emptyMap(),
+    val playDates: List<String> = emptyList(),           // "YYYYMMDD" — streak için
+    val dayPlayMinutes: Map<String, Int> = emptyMap(),   // "YYYYMMDD" → dk — weekly için
+    val totalPlayedMinutes: Int = 0,
 ) {
     companion object {
         val EMPTY = LibrarySnapshot(

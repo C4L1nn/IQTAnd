@@ -2,171 +2,232 @@ package com.iqtmusic.mobile.feature.home
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.Delete
+import androidx.compose.material.icons.rounded.Download
 import androidx.compose.material.icons.rounded.DownloadDone
 import androidx.compose.material.icons.rounded.Favorite
-import androidx.compose.material.icons.rounded.MusicNote
-
+import androidx.compose.material.icons.rounded.FavoriteBorder
+import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material.icons.rounded.PlayArrow
-import androidx.compose.material3.AssistChip
-import androidx.compose.material3.Card
-import androidx.compose.material3.ElevatedCard
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
+import androidx.compose.material.icons.rounded.QueueMusic
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.Composable
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import coil.compose.AsyncImage
 import com.iqtmusic.mobile.MainUiState
 import com.iqtmusic.mobile.data.model.Track
+import com.iqtmusic.mobile.ui.components.IqtEmptyState
+import com.iqtmusic.mobile.ui.components.IqtInfoPill
+import com.iqtmusic.mobile.ui.components.IqtRoundIconButton
+import com.iqtmusic.mobile.ui.components.IqtScreenHeader
+import com.iqtmusic.mobile.ui.components.IqtSectionHeader
+import com.iqtmusic.mobile.ui.components.IqtTrackRow
 
 @Composable
 fun HomeScreen(
     uiState: MainUiState,
     onPlayTrack: (String) -> Unit,
     onToggleFavorite: (String) -> Unit,
+    onRemoveTrack: (String) -> Unit,
+    onDownloadTrack: (String) -> Unit = {},
+    onDeleteDownload: (String) -> Unit = {},
+    onOpenArtist: (String) -> Unit = {},
 ) {
     val downloadedCount = uiState.snapshot.tracks.count { it.isDownloaded }
+    val currentTrackId = uiState.snapshot.currentTrackId
+    val hasLibrary = uiState.snapshot.tracks.isNotEmpty()
 
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
-        contentPadding = androidx.compose.foundation.layout.PaddingValues(20.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp),
+        contentPadding = PaddingValues(horizontal = 20.dp, vertical = 20.dp),
+        verticalArrangement = Arrangement.spacedBy(18.dp),
     ) {
         item {
-            ElevatedCard {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(20.dp),
-                    verticalArrangement = Arrangement.spacedBy(10.dp),
-                ) {
-                    Text("iqtMusic Android", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
-                    Text(
-                        text = "Desktop'teki playlist, favori, gecmis ve collab mantigini mobile uygun bir katmana tasiyoruz.",
-                        style = MaterialTheme.typography.bodyLarge,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+            IqtScreenHeader(
+                kicker = "IQTMusic",
+                title = "Ana sayfa",
+            )
+        }
+
+        item {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                IqtInfoPill(
+                    label = "${uiState.snapshot.playlists.size} liste",
+                    icon = Icons.Rounded.QueueMusic,
+                    active = uiState.snapshot.playlists.isNotEmpty(),
+                )
+                IqtInfoPill(
+                    label = "$downloadedCount indirilen",
+                    icon = Icons.Rounded.DownloadDone,
+                    active = downloadedCount > 0,
+                )
+                IqtInfoPill(
+                    label = "${uiState.favoriteTracks.size} favori",
+                    icon = Icons.Rounded.Favorite,
+                    active = uiState.favoriteTracks.isNotEmpty(),
+                )
+            }
+        }
+
+        if (!hasLibrary) {
+            item {
+                IqtEmptyState(
+                    title = "Kutuphane bos",
+                    body = "Ara ekranindan sarki ekle.",
+                )
+            }
+        } else {
+            if (uiState.recentTracks.isNotEmpty()) {
+                item {
+                    IqtSectionHeader(title = "Son calinanlar")
+                }
+                items(uiState.recentTracks, key = { "recent-${it.id}" }) { track ->
+                    HomeTrackRow(
+                        track = track,
+                        isActive = track.id == currentTrackId,
+                        downloadingProgress = uiState.downloadProgress[track.id],
+                        onPlayTrack = onPlayTrack,
+                        onToggleFavorite = onToggleFavorite,
+                        onRemoveTrack = onRemoveTrack,
+                        onDownloadTrack = onDownloadTrack,
+                        onDeleteDownload = onDeleteDownload,
+                        onOpenArtist = onOpenArtist,
                     )
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        AssistChip(
-                            onClick = {},
-                            label = { Text("${uiState.snapshot.playlists.size} liste") },
-                            leadingIcon = { Icon(Icons.Rounded.Favorite, contentDescription = null) },
-                        )
-                        AssistChip(
-                            onClick = {},
-                            label = { Text("$downloadedCount indirilen") },
-                            leadingIcon = { Icon(Icons.Rounded.DownloadDone, contentDescription = null) },
-                        )
-                    }
                 }
             }
-        }
 
-        if (uiState.recentTracks.isNotEmpty()) {
-            item { SectionTitle("Son calinanlar") }
-            items(uiState.recentTracks, key = { "recent-${it.id}" }) { track ->
-                TrackRow(track, onPlayTrack, onToggleFavorite)
+            if (uiState.favoriteTracks.isNotEmpty()) {
+                item {
+                    IqtSectionHeader(title = "Favoriler")
+                }
+                items(uiState.favoriteTracks.take(4), key = { "favorite-${it.id}" }) { track ->
+                    HomeTrackRow(
+                        track = track,
+                        isActive = track.id == currentTrackId,
+                        downloadingProgress = uiState.downloadProgress[track.id],
+                        onPlayTrack = onPlayTrack,
+                        onToggleFavorite = onToggleFavorite,
+                        onRemoveTrack = onRemoveTrack,
+                        onDownloadTrack = onDownloadTrack,
+                        onDeleteDownload = onDeleteDownload,
+                        onOpenArtist = onOpenArtist,
+                    )
+                }
             }
-        }
 
-        if (uiState.favoriteTracks.isNotEmpty()) {
-            item { SectionTitle("Favoriler") }
-            items(uiState.favoriteTracks.take(3), key = { "fav-${it.id}" }) { track ->
-                TrackRow(track, onPlayTrack, onToggleFavorite)
-            }
-        }
-
-        item { SectionTitle("Tum Sarkilar") }
-
-        items(uiState.snapshot.tracks, key = { "all-${it.id}" }) { track ->
-            TrackRow(track, onPlayTrack, onToggleFavorite)
         }
     }
 }
 
 @Composable
-private fun SectionTitle(text: String) {
-    Text(text, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-}
-
-@Composable
-private fun TrackRow(
+private fun HomeTrackRow(
     track: Track,
+    isActive: Boolean,
+    downloadingProgress: Float?,
     onPlayTrack: (String) -> Unit,
     onToggleFavorite: (String) -> Unit,
+    onRemoveTrack: (String) -> Unit,
+    onDownloadTrack: (String) -> Unit,
+    onDeleteDownload: (String) -> Unit,
+    onOpenArtist: (String) -> Unit,
 ) {
-    Card {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 12.dp, vertical = 10.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            if (track.coverUrl != null) {
-                AsyncImage(
-                    model = track.coverUrl,
-                    contentDescription = "Album kapaği",
-                    modifier = Modifier
-                        .size(48.dp)
-                        .clip(RoundedCornerShape(6.dp)),
-                    contentScale = ContentScale.Crop,
+    val subtitle = buildString {
+        append(track.artist)
+        append(" - ")
+        append(track.album.ifBlank { track.durationLabel })
+    }
+
+    var menuExpanded by remember { mutableStateOf(false) }
+
+    IqtTrackRow(
+        title = track.title,
+        subtitle = subtitle,
+        onSubtitleClick = if (track.artist.isNotBlank()) {
+            { onOpenArtist(track.artist) }
+        } else null,
+        coverUrl = track.coverUrl,
+        isActive = isActive,
+        onClick = { onPlayTrack(track.id) },
+        trailing = {
+            IqtRoundIconButton(
+                icon = if (track.isFavorite) Icons.Rounded.Favorite else Icons.Rounded.FavoriteBorder,
+                contentDescription = "Favori",
+                onClick = { onToggleFavorite(track.id) },
+                active = track.isFavorite,
+            )
+            IqtRoundIconButton(
+                icon = Icons.Rounded.PlayArrow,
+                contentDescription = "Cal",
+                onClick = { onPlayTrack(track.id) },
+                emphasize = true,
+            )
+            Box {
+                IqtRoundIconButton(
+                    icon = Icons.Rounded.MoreVert,
+                    contentDescription = "Daha fazla",
+                    onClick = { menuExpanded = true },
                 )
-            } else {
-                Box(
-                    modifier = Modifier
-                        .size(48.dp)
-                        .clip(RoundedCornerShape(6.dp)),
-                    contentAlignment = Alignment.Center,
+                DropdownMenu(
+                    expanded = menuExpanded,
+                    onDismissRequest = { menuExpanded = false },
                 ) {
-                    Icon(
-                        Icons.Rounded.MusicNote,
-                        contentDescription = null,
-                        modifier = Modifier.size(24.dp),
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    when {
+                        downloadingProgress != null -> {
+                            DropdownMenuItem(
+                                text = { Text("İndiriliyor...") },
+                                onClick = { menuExpanded = false },
+                                leadingIcon = {
+                                    androidx.compose.material3.CircularProgressIndicator(
+                                        progress = { downloadingProgress },
+                                        modifier = Modifier.size(18.dp),
+                                        strokeWidth = 2.dp,
+                                    )
+                                },
+                            )
+                        }
+                        track.isDownloaded -> {
+                            DropdownMenuItem(
+                                text = { Text("İndirmeyi sil") },
+                                onClick = { onDeleteDownload(track.id); menuExpanded = false },
+                                leadingIcon = {
+                                    androidx.compose.material3.Icon(Icons.Rounded.DownloadDone, null)
+                                },
+                            )
+                        }
+                        track.videoId != null -> {
+                            DropdownMenuItem(
+                                text = { Text("İndir") },
+                                onClick = { onDownloadTrack(track.id); menuExpanded = false },
+                                leadingIcon = {
+                                    androidx.compose.material3.Icon(Icons.Rounded.Download, null)
+                                },
+                            )
+                        }
+                    }
+                    DropdownMenuItem(
+                        text = { Text("Kütüphaneden kaldır") },
+                        onClick = { onRemoveTrack(track.id); menuExpanded = false },
+                        leadingIcon = {
+                            androidx.compose.material3.Icon(Icons.Rounded.Delete, null)
+                        },
                     )
                 }
             }
-            Spacer(Modifier.width(12.dp))
-            Column(
-                modifier = Modifier.weight(1f),
-                verticalArrangement = Arrangement.spacedBy(2.dp),
-            ) {
-                Text(track.title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold, maxLines = 1)
-                Text(
-                    text = "${track.artist} · ${track.durationLabel}",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 1,
-                )
-            }
-
-            Row {
-                IconButton(onClick = { onToggleFavorite(track.id) }) {
-                    Icon(Icons.Rounded.Favorite, contentDescription = "Favori")
-                }
-                IconButton(onClick = { onPlayTrack(track.id) }) {
-                    Icon(Icons.Rounded.PlayArrow, contentDescription = "Cal")
-                }
-            }
-        }
-    }
+        },
+    )
 }

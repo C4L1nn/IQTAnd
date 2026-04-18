@@ -2,6 +2,7 @@ package com.iqtmusic.mobile.data.repository
 
 import com.iqtmusic.mobile.data.model.LibrarySnapshot
 import com.iqtmusic.mobile.data.model.Playlist
+import com.iqtmusic.mobile.data.model.RepeatMode
 import com.iqtmusic.mobile.data.model.Track
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -135,6 +136,114 @@ class FakeLibraryRepository : LibraryRepository {
                     } else {
                         playlist.copy(trackIds = playlist.trackIds.filterNot { it == trackId })
                     }
+                },
+            )
+        }
+    }
+
+    override suspend fun skipNext() {
+        state.update { current ->
+            val queue = current.queueTrackIds.ifEmpty { return@update current }
+            val idx = queue.indexOf(current.currentTrackId)
+            val nextId = if (idx >= 0 && idx < queue.lastIndex) queue[idx + 1] else return@update current
+            val recentIds = listOf(nextId) + current.recentTrackIds.filterNot { it == nextId }
+            current.copy(currentTrackId = nextId, isPlaying = true, recentTrackIds = recentIds.take(12))
+        }
+    }
+
+    override suspend fun skipPrevious() {
+        state.update { current ->
+            val queue = current.queueTrackIds.ifEmpty { return@update current }
+            val idx = queue.indexOf(current.currentTrackId)
+            val prevId = if (idx > 0) queue[idx - 1] else return@update current
+            val recentIds = listOf(prevId) + current.recentTrackIds.filterNot { it == prevId }
+            current.copy(currentTrackId = prevId, isPlaying = true, recentTrackIds = recentIds.take(12))
+        }
+    }
+
+    override suspend fun removeTrack(trackId: String) {
+        state.update { current ->
+            val newQueue = current.queueTrackIds.filterNot { it == trackId }
+            val newCurrentId = if (current.currentTrackId == trackId) newQueue.firstOrNull() else current.currentTrackId
+            current.copy(
+                tracks = current.tracks.filterNot { it.id == trackId },
+                queueTrackIds = newQueue,
+                recentTrackIds = current.recentTrackIds.filterNot { it == trackId },
+                favoriteTrackIds = current.favoriteTrackIds.filterNot { it == trackId },
+                currentTrackId = newCurrentId,
+                isPlaying = if (current.currentTrackId == trackId) newCurrentId != null else current.isPlaying,
+                playlists = current.playlists.map { pl ->
+                    pl.copy(trackIds = pl.trackIds.filterNot { it == trackId })
+                },
+            )
+        }
+    }
+
+    override suspend fun toggleShuffle() {
+        state.update { current ->
+            if (current.shuffleEnabled) {
+                current.copy(shuffleEnabled = false)
+            } else {
+                val idx = current.queueTrackIds.indexOf(current.currentTrackId)
+                val rest = current.queueTrackIds.toMutableList()
+                val head = if (idx >= 0) rest.removeAt(idx) else null
+                val shuffled = rest.shuffled()
+                val newQueue = if (head != null) listOf(head) + shuffled else shuffled
+                current.copy(shuffleEnabled = true, queueTrackIds = newQueue)
+            }
+        }
+    }
+
+    override suspend fun cycleRepeatMode() {
+        state.update { current ->
+            val next = when (current.repeatMode) {
+                RepeatMode.NONE -> RepeatMode.ALL
+                RepeatMode.ALL -> RepeatMode.ONE
+                RepeatMode.ONE -> RepeatMode.NONE
+            }
+            current.copy(repeatMode = next)
+        }
+    }
+
+    override suspend fun handlePlaybackEnded() {
+        state.update { current ->
+            val queue = current.queueTrackIds.ifEmpty { return@update current.copy(isPlaying = false) }
+            val idx = queue.indexOf(current.currentTrackId)
+            when (current.repeatMode) {
+                RepeatMode.ONE -> current
+                RepeatMode.ALL -> {
+                    val nextId = if (idx >= 0 && idx < queue.lastIndex) queue[idx + 1] else queue.first()
+                    val recentIds = listOf(nextId) + current.recentTrackIds.filterNot { it == nextId }
+                    current.copy(currentTrackId = nextId, isPlaying = true, recentTrackIds = recentIds.take(12))
+                }
+                RepeatMode.NONE -> {
+                    if (idx >= 0 && idx < queue.lastIndex) {
+                        val nextId = queue[idx + 1]
+                        val recentIds = listOf(nextId) + current.recentTrackIds.filterNot { it == nextId }
+                        current.copy(currentTrackId = nextId, isPlaying = true, recentTrackIds = recentIds.take(12))
+                    } else {
+                        current.copy(isPlaying = false)
+                    }
+                }
+            }
+        }
+    }
+
+    override suspend fun markTrackDownloaded(trackId: String, localPath: String) {
+        state.update { current ->
+            current.copy(
+                tracks = current.tracks.map { t ->
+                    if (t.id == trackId) t.copy(isDownloaded = true, localPath = localPath) else t
+                },
+            )
+        }
+    }
+
+    override suspend fun clearTrackDownload(trackId: String) {
+        state.update { current ->
+            current.copy(
+                tracks = current.tracks.map { t ->
+                    if (t.id == trackId) t.copy(isDownloaded = false, localPath = null) else t
                 },
             )
         }

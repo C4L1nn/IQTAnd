@@ -18,7 +18,8 @@ import os
 import shutil
 import sys
 import threading
-from http.server import HTTPServer, BaseHTTPRequestHandler
+from concurrent.futures import ThreadPoolExecutor
+from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 from urllib.parse import urlparse, parse_qs, unquote_plus
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -72,10 +73,13 @@ YDL_OPTS: dict = {
     "format": "bestaudio/best",
     "quiet": True,
     "no_warnings": True,
+    "noplaylist": True,
     "extract_flat": False,
     "extractor_args": {
         "youtube": {
-            "player_client": ["tv_embedded", "web"],
+            # Web tabanli client'lar artik sikca PO token gerektiriyor.
+            # Stream server'da audio odakli ve daha dayanikli client'lari tercih ediyoruz.
+            "player_client": ["ios", "android_vr", "tv"],
         }
     },
 }
@@ -85,9 +89,13 @@ if _COOKIES_FILE:
 # Basit in-memory cache — aynı videoId için tekrar tekrar istek atmayı önler
 _url_cache: dict[str, str] = {}
 _cache_lock = threading.Lock()
+_stream_waiters: dict[str, dict] = {}
+_stream_waiters_lock = threading.Lock()
+_prefetching: set[str] = set()
+_prefetch_lock = threading.Lock()
+_prefetch_pool = ThreadPoolExecutor(max_workers=3, thread_name_prefix="iqt-stream-prefetch")
 
-
-def get_stream_url(video_id: str) -> str | None:
+def _extract_stream_url(video_id: str) -> str | None:
     with _cache_lock:
         if video_id in _url_cache:
             return _url_cache[video_id]
@@ -128,6 +136,79 @@ def get_stream_url(video_id: str) -> str | None:
     except Exception as e:
         print(f"[HATA] stream {video_id}: {e}")
         raise  # caller'a ilet
+
+
+def get_stream_url(video_id: str) -> str | None:
+    if not video_id:
+        return None
+
+    with _cache_lock:
+        cached = _url_cache.get(video_id)
+    if cached:
+        return cached
+
+    owner = False
+    with _stream_waiters_lock:
+        waiter = _stream_waiters.get(video_id)
+        if waiter is None:
+            waiter = {"event": threading.Event(), "url": None, "error": None}
+            _stream_waiters[video_id] = waiter
+            owner = True
+
+    if owner:
+        try:
+            waiter["url"] = _extract_stream_url(video_id)
+            return waiter["url"]
+        except Exception as e:
+            waiter["error"] = e
+            raise
+        finally:
+            waiter["event"].set()
+            with _stream_waiters_lock:
+                _stream_waiters.pop(video_id, None)
+
+    waiter["event"].wait(25)
+    if waiter.get("url"):
+        return waiter["url"]
+    if waiter.get("error"):
+        raise waiter["error"]
+    return None
+
+
+def schedule_prefetch(video_ids: list[str], limit: int = 3) -> list[str]:
+    scheduled: list[str] = []
+
+    for raw_id in video_ids:
+        video_id = str(raw_id or "").strip()
+        if not video_id:
+            continue
+
+        with _cache_lock:
+            if video_id in _url_cache:
+                continue
+        with _stream_waiters_lock:
+            if video_id in _stream_waiters:
+                continue
+        with _prefetch_lock:
+            if video_id in _prefetching:
+                continue
+            _prefetching.add(video_id)
+
+        def _task(vid=video_id):
+            try:
+                get_stream_url(vid)
+            except Exception as e:
+                print(f"[UYARI] prefetch {vid}: {e}")
+            finally:
+                with _prefetch_lock:
+                    _prefetching.discard(vid)
+
+        _prefetch_pool.submit(_task)
+        scheduled.append(video_id)
+        if len(scheduled) >= limit:
+            break
+
+    return scheduled
 
 
 def _fmt_duration(seconds) -> str:
@@ -179,6 +260,8 @@ class StreamHandler(BaseHTTPRequestHandler):
             self._send_json(200, {"status": "ok", "cookies": _COOKIES_FILE})
         elif parsed.path == "/debug":
             self._handle_debug(params)
+        elif parsed.path == "/prefetch":
+            self._handle_prefetch(params)
         elif parsed.path == "/stream":
             self._handle_stream(params)
         elif parsed.path == "/search":
@@ -213,11 +296,21 @@ class StreamHandler(BaseHTTPRequestHandler):
             self._send_json(503, {"error": str(e)})
             return
         if url:
-            print(f"[OK] {video_id[:12]} → {url[:60]}...")
+            print(f"[OK] {video_id[:12]} -> {url[:60]}...")
             self._send_json(200, {"url": url})
         else:
             print(f"[FAIL] {video_id}: URL None")
             self._send_json(503, {"error": "URL could not be extracted"})
+
+    def _handle_prefetch(self, params):
+        raw_ids = list(params.get("videoId", []))
+        raw_ids.extend(
+            item.strip()
+            for group in params.get("videoIds", [])
+            for item in group.split(",")
+        )
+        queued = schedule_prefetch(raw_ids)
+        self._send_json(202, {"queued": queued, "count": len(queued)})
 
     def _handle_search(self, params):
         q = unquote_plus(params.get("q", [""])[0]).strip()
@@ -226,6 +319,7 @@ class StreamHandler(BaseHTTPRequestHandler):
             return
         print(f"[>] Search: {q!r}")
         results = search_youtube_music(q)
+        schedule_prefetch([item.get("videoId", "") for item in results[:3]], limit=3)
         print(f"[OK] {len(results)} sonuc")
         self._send_json(200, results)
 
@@ -238,11 +332,11 @@ class StreamHandler(BaseHTTPRequestHandler):
         self.wfile.write(body)
 
     def log_message(self, fmt, *args):
-        pass
+        print(f"[HTTP] {self.address_string()} - {fmt % args}")
 
 
 if __name__ == "__main__":
-    server = HTTPServer(("0.0.0.0", PORT), StreamHandler)
+    server = ThreadingHTTPServer(("0.0.0.0", PORT), StreamHandler)
     print(f"\n[iqtMusic Stream Server] http://0.0.0.0:{PORT}")
     print(f"[iqtMusic Stream Server] ADB tunnel: adb reverse tcp:5001 tcp:5001")
     print("[iqtMusic Stream Server] Ctrl+C ile durdur\n")

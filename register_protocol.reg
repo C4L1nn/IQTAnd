@@ -1,0 +1,15 @@
+Windows Registry Editor Version 5.00
+
+[HKEY_CLASSES_ROOT\iqtmusic]
+@="URL:iqtMusic Protocol"
+"URL Protocol"=""
+
+[HKEY_CLASSES_ROOT\iqtmusic\DefaultIcon]
+@="C:\\Users\\Aykut\\Desktop\\iqtMusic v2\\dist\\iqtMusic\\iqtMusic.exe,0"
+
+[HKEY_CLASSES_ROOT\iqtmusic\shell]
+
+[HKEY_CLASSES_ROOT\iqtmusic\shell\open]
+
+[HKEY_CLASSES_ROOT\iqtmusic\shell\open\command]
+@="\"C:\\Users\\Aykut\\Desktop\\iqtMusic v2\\dist\\iqtMusic\\iqtMusic.exe\" \"%1\""

@@ -17,4 +17,12 @@ interface LibraryRepository {
     suspend fun addTrackToPlaylist(playlistId: String, trackId: String)
     suspend fun removeTrackFromPlaylist(playlistId: String, trackId: String)
     suspend fun startCollabHost()
+    suspend fun skipNext()
+    suspend fun skipPrevious()
+    suspend fun removeTrack(trackId: String)
+    suspend fun toggleShuffle()
+    suspend fun cycleRepeatMode()
+    suspend fun handlePlaybackEnded()
+    suspend fun markTrackDownloaded(trackId: String, localPath: String)
+    suspend fun clearTrackDownload(trackId: String)
 }

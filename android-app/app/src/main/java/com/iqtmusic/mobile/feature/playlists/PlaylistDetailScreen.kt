@@ -1,34 +1,32 @@
 package com.iqtmusic.mobile.feature.playlists
 
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.DeleteOutline
 import androidx.compose.material.icons.rounded.PlayArrow
-import androidx.compose.material3.Button
-import androidx.compose.material3.Card
-import androidx.compose.material3.CenterAlignedTopAppBar
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
+import androidx.compose.material.icons.rounded.QueueMusic
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.iqtmusic.mobile.MainUiState
+import com.iqtmusic.mobile.ui.components.IqtEmptyState
+import com.iqtmusic.mobile.ui.components.IqtInfoPill
+import com.iqtmusic.mobile.ui.components.IqtPanel
+import com.iqtmusic.mobile.ui.components.IqtRoundIconButton
+import com.iqtmusic.mobile.ui.components.IqtScreenHeader
+import com.iqtmusic.mobile.ui.components.IqtSectionHeader
+import com.iqtmusic.mobile.ui.components.IqtTrackRow
+import com.iqtmusic.mobile.ui.theme.iqtPalette
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun PlaylistDetailScreen(
     uiState: MainUiState,
@@ -42,111 +40,110 @@ fun PlaylistDetailScreen(
         uiState.snapshot.tracks.find { it.id == id }
     }.orEmpty()
 
-    Scaffold(
-        topBar = {
-            CenterAlignedTopAppBar(
-                title = { Text(playlist?.name ?: "Liste") },
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.Rounded.ArrowBack, contentDescription = "Geri")
-                    }
-                },
-            )
-        },
-    ) { innerPadding ->
+    LazyColumn(
+        modifier = Modifier.fillMaxSize(),
+        contentPadding = PaddingValues(horizontal = 20.dp, vertical = 20.dp),
+        verticalArrangement = Arrangement.spacedBy(18.dp),
+    ) {
+        item {
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                IqtRoundIconButton(
+                    icon = Icons.Rounded.ArrowBack,
+                    contentDescription = "Geri",
+                    onClick = onBack,
+                )
+                IqtInfoPill(
+                    label = "Liste",
+                    icon = Icons.Rounded.QueueMusic,
+                    active = true,
+                )
+            }
+        }
+
         if (playlist == null) {
-            Column(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(innerPadding)
-                    .padding(20.dp),
-                verticalArrangement = Arrangement.Center,
-                horizontalAlignment = Alignment.CenterHorizontally,
+            item {
+                IqtEmptyState(
+                    title = "Liste bulunamadi",
+                    body = "Geri donup listelerim ekranindan tekrar secmeyi deneyebilirsin.",
+                )
+            }
+            return@LazyColumn
+        }
+
+        item {
+            IqtScreenHeader(
+                kicker = "liste",
+                title = playlist.name,
+            )
+        }
+
+        item {
+            IqtPanel(
+                modifier = Modifier.fillMaxWidth(),
+                accentAmount = if (tracks.isNotEmpty()) 0.12f else 0f,
             ) {
-                Text("Liste bulunamadi", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                Text(
+                    text = "${tracks.size} sarki",
+                    style = MaterialTheme.typography.headlineMedium,
+                    color = MaterialTheme.iqtPalette.textPrimary,
+                )
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    IqtInfoPill(
+                        label = "${tracks.size} sarki",
+                        icon = Icons.Rounded.QueueMusic,
+                    )
+                    if (tracks.isNotEmpty()) {
+                        IqtInfoPill(
+                            label = tracks.first().artist,
+                            icon = Icons.Rounded.PlayArrow,
+                        )
+                    }
+                }
+                IqtRoundIconButton(
+                    icon = Icons.Rounded.PlayArrow,
+                    contentDescription = "Tumunu cal",
+                    onClick = { onPlayPlaylist(playlist.id, tracks.firstOrNull()?.id) },
+                    emphasize = true,
+                    enabled = tracks.isNotEmpty(),
+                )
+            }
+        }
+
+        if (tracks.isEmpty()) {
+            item {
+                IqtEmptyState(
+                    title = "Liste bos",
+                    body = "Aramadan sarki ekle.",
+                )
             }
         } else {
-            LazyColumn(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(innerPadding),
-                contentPadding = androidx.compose.foundation.layout.PaddingValues(20.dp),
-                verticalArrangement = Arrangement.spacedBy(14.dp),
-            ) {
-                item {
-                    Card {
-                        Column(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(18.dp),
-                            verticalArrangement = Arrangement.spacedBy(10.dp),
-                        ) {
-                            Text(playlist.name, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
-                            Text(
-                                text = "${tracks.size} sarki - Kuyrukta ${uiState.queueTracks.size} parca var",
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                            Button(
-                                onClick = { onPlayPlaylist(playlist.id, tracks.firstOrNull()?.id) },
-                                enabled = tracks.isNotEmpty(),
-                            ) {
-                                Icon(Icons.Rounded.PlayArrow, contentDescription = null)
-                                Text("Play all", modifier = Modifier.padding(start = 8.dp))
-                            }
-                        }
-                    }
-                }
+            item {
+                IqtSectionHeader(title = "Parcalar")
+            }
 
-                if (tracks.isEmpty()) {
-                    item {
-                        Card {
-                            Column(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(18.dp),
-                                verticalArrangement = Arrangement.spacedBy(8.dp),
-                            ) {
-                                Text("Bu liste su an bos", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
-                                Text(
-                                    text = "Arama ekranindan parcayi bu listeye ekleyebilirsin.",
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                )
-                            }
-                        }
-                    }
-                }
-
-                items(tracks, key = { it.id }) { track ->
-                    Card {
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(horizontal = 16.dp, vertical = 12.dp),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            Column(
-                                modifier = Modifier.weight(1f),
-                                verticalArrangement = Arrangement.spacedBy(4.dp),
-                            ) {
-                                Text(track.title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
-                                Text(
-                                    text = "${track.artist} - ${track.durationLabel}",
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                )
-                            }
-
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                IconButton(onClick = { onRemoveTrackFromPlaylist(playlist.id, track.id) }) {
-                                    Icon(Icons.Rounded.DeleteOutline, contentDescription = "Listeden cikar")
-                                }
-                                Button(onClick = { onPlayPlaylist(playlist.id, track.id) }) {
-                                    Icon(Icons.Rounded.PlayArrow, contentDescription = null)
-                                }
-                            }
-                        }
-                    }
-                }
+            itemsIndexed(tracks, key = { _, track -> track.id }) { index, track ->
+                IqtTrackRow(
+                    title = track.title,
+                    subtitle = "${track.artist} - ${track.durationLabel}",
+                    coverUrl = track.coverUrl,
+                    leadingLabel = "${index + 1}",
+                    badge = track.durationLabel,
+                    isActive = track.id == uiState.snapshot.currentTrackId,
+                    onClick = { onPlayPlaylist(playlist.id, track.id) },
+                    trailing = {
+                        IqtRoundIconButton(
+                            icon = Icons.Rounded.DeleteOutline,
+                            contentDescription = "Listeden cikar",
+                            onClick = { onRemoveTrackFromPlaylist(playlist.id, track.id) },
+                        )
+                        IqtRoundIconButton(
+                            icon = Icons.Rounded.PlayArrow,
+                            contentDescription = "Cal",
+                            onClick = { onPlayPlaylist(playlist.id, track.id) },
+                            emphasize = true,
+                        )
+                    },
+                )
             }
         }
     }
