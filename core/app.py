@@ -47,7 +47,7 @@ from PySide6.QtGui import (
 import core.constants as _C
 from core.constants import (
     THEMES, BG_BLACK, BG_CARD, BG_CARD_HOVER, BG_ELEVATED, BORDER_COLOR,
-    TEXT_PRIMARY, TEXT_MUTED, FONT_MAIN, YDL_FORMAT
+    TEXT_PRIMARY, TEXT_MUTED, FONT_MAIN, YDL_FORMAT, APP_VERSION
 )
 from core.theme import get_accent
 from core.cache import DiskImageCache, LRUTTLCache, DiskMediaCache
@@ -60,6 +60,7 @@ from utils.helpers import (
     get_app_dir, safe_load_json, safe_save_json, open_folder,
     create_icon, ICON_PATH, VLC_PLUGINS, VLC_DIR, qt_is_valid
 )
+from utils.telemetry import maybe_send_startup_telemetry, send_event
 from ui.widgets import ClickableFrame, TrackCoverWidget
 from ui.titlebar import TitleBar
 from ui.styles import get_main_stylesheet
@@ -130,6 +131,8 @@ class IqtMusic(
         self._resize_cursor_owner = None
         self._resize_cursor_backup = None
         self._windowed_geometry = None
+        self._maximized_active = False
+        self._fullscreen_active = False
 
         # Enable a borderless window. The native title bar is hidden
         # when using Qt.FramelessWindowHint. A custom title bar is
@@ -168,6 +171,7 @@ class IqtMusic(
         # Örn: Türkçe arayüz + Almanya/ABD listeleri.
         self._content_region_mode = str(settings.get("content_region_mode", "auto") or "auto").strip().lower()
         self._content_region = str(settings.get("content_region", "") or "").strip().upper()
+        self._telemetry_enabled = bool(settings.get("telemetry_enabled", True))
         self._shortcut_map = dict(settings.get("shortcuts", {}) or {})
         self._lastfm_api_key = (
             os.environ.get("IQTMUSIC_LASTFM_API_KEY")
@@ -235,7 +239,6 @@ class IqtMusic(
             "quiet":              True,
             "cachedir":           self._ydl_cache_dir,
             "no_warnings":        True,
-            "nocheckcertificate": True,
             "geo_bypass":         True,
             "socket_timeout":     15,
             "retries":            3,
@@ -634,6 +637,22 @@ class IqtMusic(
                 log.warning("Son durum yüklenemedi: %s", e)
 
 
+        self._session_start = time.monotonic()
+        self._send_startup_telemetry()
+
+
+    def _send_startup_telemetry(self):
+        try:
+            maybe_send_startup_telemetry(
+                base_dir=self.base_dir,
+                app_version=APP_VERSION,
+                language=getattr(self, "_language", "tr"),
+                enabled=bool(getattr(self, "_telemetry_enabled", True)),
+            )
+        except Exception as e:
+            log.debug("Telemetry skipped: %s", e)
+
+
     def showEvent(self, event):
         super().showEvent(event)
         self._update_window_rounding()
@@ -837,13 +856,14 @@ class IqtMusic(
                 log.debug("Sessiz hata: %s", _e)
 
 
-    def _enable_native_rounded_corners(self):
+    def _set_native_corner_preference(self, rounded: bool):
         if not sys.platform.startswith("win") or ctypes is None:
             return
         try:
             DWMWA_WINDOW_CORNER_PREFERENCE = 33
+            DWMWCP_DONOTROUND = 1
             DWMWCP_ROUND = 2
-            value = ctypes.c_int(DWMWCP_ROUND)
+            value = ctypes.c_int(DWMWCP_ROUND if rounded else DWMWCP_DONOTROUND)
             ctypes.windll.dwmapi.DwmSetWindowAttribute(
                 int(self.winId()),
                 DWMWA_WINDOW_CORNER_PREFERENCE,
@@ -854,28 +874,53 @@ class IqtMusic(
             log.debug("Native pencere köşesi uygulanamadı: %s", _e)
 
 
+    def _set_fullscreen_topmost(self, enabled: bool, geom=None):
+        if not sys.platform.startswith("win") or ctypes is None:
+            return
+        try:
+            hwnd = int(self.winId())
+            HWND_TOPMOST = -1
+            HWND_NOTOPMOST = -2
+            SWP_NOMOVE = 0x0002
+            SWP_NOSIZE = 0x0001
+            SWP_NOACTIVATE = 0x0010
+            SWP_SHOWWINDOW = 0x0040
+            x = y = w = h = 0
+            flags = SWP_NOACTIVATE | SWP_SHOWWINDOW
+            if enabled and geom is not None:
+                x, y, w, h = geom.x(), geom.y(), geom.width(), geom.height()
+            else:
+                flags |= SWP_NOMOVE | SWP_NOSIZE
+            ctypes.windll.user32.SetWindowPos(
+                hwnd,
+                HWND_TOPMOST if enabled else HWND_NOTOPMOST,
+                x,
+                y,
+                w,
+                h,
+                flags,
+            )
+        except Exception as _e:
+            log.debug("Fullscreen topmost uygulanamadı: %s", _e)
+
+
+    def _enable_native_rounded_corners(self):
+        self._set_native_corner_preference(True)
+
+
     def _update_window_rounding(self):
-        flat = bool(self.isMaximized() or self.isFullScreen())
+        fullscreen = self._is_effective_fullscreen() if hasattr(self, "_is_effective_fullscreen") else self.isFullScreen()
+        maximized = self._is_effective_maximized() if hasattr(self, "_is_effective_maximized") else self.isMaximized()
+        flat = bool(maximized or fullscreen)
         self._refresh_rounded_shell_style(flat)
         if flat:
             try:
                 self.clearMask()
             except Exception as _e:
                 log.debug("Sessiz hata: %s", _e)
-            # Windows maximize: çerçevesiz pencereler ekran kenarına
-            # tam oturmaz — 8px'lik padding compensation uygula.
-            # Fullscreen için setGeometry ÇAĞRILMAMALI: Qt'nin native fullscreen
-            # mekanizması zaten tüm ekranı kaplar; setGeometry çağrısı
-            # Windows'ta isFullScreen() durumunu bozar (silent state exit).
-            try:
-                if sys.platform.startswith("win") and self.isMaximized():
-                    from PySide6.QtWidgets import QApplication as _QApp
-                    screen = _QApp.screenAt(self.frameGeometry().center()) or _QApp.primaryScreen()
-                    if screen:
-                        ag = screen.availableGeometry()
-                        self.setGeometry(ag)
-            except Exception as _e:
-                log.debug("Sessiz hata: %s", _e)
+            # Qt keeps the real fullscreen/maximized bounds; changing geometry
+            # here can silently drop the native fullscreen/maximized state.
+            self._set_native_corner_preference(False)
             return
         self._enable_native_rounded_corners()
         try:
@@ -1006,10 +1051,18 @@ class IqtMusic(
         self.show()
         self.setWindowState(self.windowState() & ~Qt.WindowMinimized | Qt.WindowActive)
         if mode == "fullscreen":
+            self._fullscreen_active = True
+            self._maximized_active = False
             self.showFullScreen()
+            self._force_fullscreen_bounds()
         elif mode == "maximized":
-            self.showMaximized()
+            self._fullscreen_active = False
+            self._maximized_active = True
+            self.showNormal()
+            self._force_maximized_bounds()
         else:
+            self._fullscreen_active = False
+            self._maximized_active = False
             self.showNormal()
             self._fit_window_to_available_geometry()
         self._sync_titlebar_window_state()
@@ -1018,7 +1071,22 @@ class IqtMusic(
 
     def _quit(self):
         """Uygulamayı tamamen kapatır."""
+        self._send_close_telemetry()
         QApplication.quit()
+
+    def _send_close_telemetry(self):
+        try:
+            if not getattr(self, "_telemetry_enabled", True):
+                return
+            sec = int(time.monotonic() - getattr(self, "_session_start", time.monotonic()))
+            send_event(
+                base_dir=self.base_dir,
+                event="app_close",
+                app_version=APP_VERSION,
+                session_sec=sec,
+            )
+        except Exception as e:
+            log.debug("Close telemetry skipped: %s", e)
 
     def closeEvent(self, event):
         """Kapat düğmesine basılınca pencereyi gizle, uygulamayı kapatma."""
@@ -1026,6 +1094,7 @@ class IqtMusic(
             event.ignore()
             self.hide()
         else:
+            self._send_close_telemetry()
             event.accept()
 
     def _handle_media_key_action(self, action: str):
@@ -1554,6 +1623,8 @@ class IqtMusic(
         lbl.setStyleSheet(f"color:{get_accent()}; font-size:14px; background:transparent;")
         res_layout.addWidget(lbl)
         self._net_pool.submit(self._search_worker, q)
+        if getattr(self, "_telemetry_enabled", True):
+            send_event(base_dir=self.base_dir, event="feature_use", feature="search")
 
 
     def _rank_search(self, results: list, query: str) -> list:

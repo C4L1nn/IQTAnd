@@ -152,17 +152,39 @@ def _upstash(cmd: list) -> None:
         pass
 
 
+def _today() -> str:
+    return datetime.now(timezone.utc).date().isoformat()
+
+
 def _record_ping(install_id: str, meta: dict) -> None:
-    today = datetime.now(timezone.utc).date().isoformat()
+    today = _today()
     _upstash(["SADD", "iqt:all", install_id])
     _upstash(["SADD", f"iqt:day:{today}", install_id])
     _upstash(["EXPIRE", f"iqt:day:{today}", 86400 * 35])
+    first_seen = meta.get("first_seen", "")
+    if first_seen == today:
+        _upstash(["SADD", f"iqt:new:{today}", install_id])
+        _upstash(["EXPIRE", f"iqt:new:{today}", 86400 * 60])
     fields: list = []
     for k, v in meta.items():
         if v:
             fields += [k, str(v)]
     if fields:
         _upstash(["HSET", f"iqt:meta:{install_id}"] + fields)
+
+
+def _record_feature(install_id: str, feature: str) -> None:
+    today = _today()
+    _upstash(["HINCRBY", f"iqt:feat:{today}", feature, "1"])
+    _upstash(["EXPIRE", f"iqt:feat:{today}", 86400 * 60])
+    _upstash(["SADD", f"iqt:day:{today}", install_id])
+
+
+def _record_session(install_id: str, sec: int) -> None:
+    today = _today()
+    _upstash(["HINCRBY", f"iqt:sess:{today}", "total_sec", str(max(0, sec))])
+    _upstash(["HINCRBY", f"iqt:sess:{today}", "count", "1"])
+    _upstash(["EXPIRE", f"iqt:sess:{today}", 86400 * 35])
 
 
 def _extract_stream_url(video_id: str) -> str | None:
@@ -433,13 +455,16 @@ class StreamHandler(BaseHTTPRequestHandler):
             url = get_stream_url(video_id)
         except Exception as e:
             print(f"[FAIL] {video_id}: {e}")
+            threading.Thread(target=_upstash, args=(["HINCRBY", f"iqt:stream:{_today()}", "fail", "1"],), daemon=True).start()
             self._send_json(503, {"error": _public_error(e)})
             return
         if url:
             print(f"[OK] {video_id[:12]} -> {_safe_url_label(url)}")
+            threading.Thread(target=_upstash, args=(["HINCRBY", f"iqt:stream:{_today()}", "ok", "1"],), daemon=True).start()
             self._send_json(200, {"url": url})
         else:
             print(f"[FAIL] {video_id}: URL None")
+            threading.Thread(target=_upstash, args=(["HINCRBY", f"iqt:stream:{_today()}", "fail", "1"],), daemon=True).start()
             self._send_json(503, {"error": "URL could not be extracted"})
 
     def _handle_prefetch(self, params):
@@ -482,15 +507,29 @@ class StreamHandler(BaseHTTPRequestHandler):
         if not INSTALL_ID_RE.match(install_id):
             self._send_json(400, {"error": "Invalid install_id"})
             return
-        meta = {
-            "os":         _clean_str(payload.get("os"), 24),
-            "os_v":       _clean_str(payload.get("os_version"), 24),
-            "lang":       _clean_str(payload.get("language"), 12),
-            "ver":        _clean_str(payload.get("app_version"), 32),
-            "screen":     _clean_str(payload.get("screen"), 16),
-            "first_seen": _clean_str(payload.get("first_seen"), 12),
-        }
-        threading.Thread(target=_record_ping, args=(install_id, meta), daemon=True).start()
+        event = _clean_str(payload.get("event"), 32) or "app_start"
+
+        if event == "feature_use":
+            feature = _clean_str(payload.get("feature"), 32)
+            if feature:
+                threading.Thread(target=_record_feature, args=(install_id, feature), daemon=True).start()
+        elif event == "app_close":
+            try:
+                sec = int(payload.get("session_sec", 0) or 0)
+            except (ValueError, TypeError):
+                sec = 0
+            threading.Thread(target=_record_session, args=(install_id, sec), daemon=True).start()
+        else:
+            meta = {
+                "os":         _clean_str(payload.get("os"), 24),
+                "os_v":       _clean_str(payload.get("os_version"), 24),
+                "lang":       _clean_str(payload.get("language"), 12),
+                "ver":        _clean_str(payload.get("app_version"), 32),
+                "screen":     _clean_str(payload.get("screen"), 16),
+                "first_seen": _clean_str(payload.get("first_seen"), 12),
+            }
+            threading.Thread(target=_record_ping, args=(install_id, meta), daemon=True).start()
+
         self._send_json(202, {"ok": True})
 
     def _send_json(self, code: int, data):

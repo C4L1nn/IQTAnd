@@ -480,6 +480,12 @@ class ContextMenuMixin:
             if btn: btn.setIcon(create_icon("heart_on", get_accent(), 18))
         safe_save_json(self.fav_file, self.favorites)
         self.sig.notify.emit(msg)
+        try:
+            if getattr(self, "_telemetry_enabled", True):
+                from utils.telemetry import send_event
+                send_event(base_dir=self.base_dir, event="feature_use", feature="favorite")
+        except Exception:
+            pass
         # Çalma barındaki kalp ikonunu senkronize et
         if self.queue and self.queue_index != -1:
             cur_vid = self.queue[self.queue_index].get("videoId", "")
@@ -526,6 +532,12 @@ class ContextMenuMixin:
     def _dl_track(self, track):
         self.dl.start(track)
         self.sig.notify.emit(self._tr("context_menu.download_starting", title=track.get("title", "?")))
+        try:
+            if getattr(self, "_telemetry_enabled", True):
+                from utils.telemetry import send_event
+                send_event(base_dir=self.base_dir, event="feature_use", feature="download")
+        except Exception:
+            pass
 
 
     def _del_dl(self, track):

@@ -35,6 +35,13 @@ def _screen_resolution() -> str:
     return ""
 
 
+def _get_install_id(base_dir: str) -> str:
+    state = safe_load_json(os.path.join(base_dir, "telemetry_state.json"), {})
+    if not isinstance(state, dict):
+        return ""
+    return str(state.get("install_id") or "").strip()
+
+
 def maybe_send_startup_telemetry(
     *,
     base_dir: str,
@@ -103,3 +110,34 @@ def maybe_send_startup_telemetry(
 
     threading.Thread(target=_send, name="iqtmusic-telemetry", daemon=True).start()
     return True
+
+
+def send_event(
+    *,
+    base_dir: str,
+    event: str,
+    app_version: str = "",
+    url: str = TELEMETRY_URL,
+    **extra,
+) -> None:
+    """Send a one-off event (feature_use, app_close) in a background thread."""
+    if not url:
+        return
+    install_id = _get_install_id(base_dir)
+    if not (16 <= len(install_id) <= 64):
+        return
+
+    payload = {"event": event, "install_id": install_id, **extra}
+
+    def _send() -> None:
+        try:
+            requests.post(
+                url,
+                json=payload,
+                headers={"User-Agent": f"iqtMusic/{app_version}"},
+                timeout=3,
+            )
+        except Exception:
+            pass
+
+    threading.Thread(target=_send, name=f"iqtmusic-{event}", daemon=True).start()
