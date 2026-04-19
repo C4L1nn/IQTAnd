@@ -332,7 +332,7 @@ class StreamHandler(BaseHTTPRequestHandler):
         params = parse_qs(parsed.query)
 
         if parsed.path == "/health":
-            self._send_json(200, {"status": "ok", "cookies_loaded": bool(_COOKIES_FILE)})
+            self._send_json(200, {"status": "ok", "v": 2, "cookies_loaded": bool(_COOKIES_FILE)})
             return
 
         if not self._check_access():
