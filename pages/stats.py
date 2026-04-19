@@ -2968,7 +2968,7 @@ def _build_streak_week_row(app, streak: int, this_week: int, last_week: int, acc
 
     trend_c  = "#4CAF50" if diff >= 0 else "#E91E63"
 
-    arrow    = "â–²" if diff >= 0 else "â–¼"
+    arrow    = "↑" if diff >= 0 else "↓"
 
 
 

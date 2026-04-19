@@ -132,10 +132,7 @@ class DiscordMixin:
                 state = artist
 
             large_img = cover_url or "iqticon"
-            if is_collab:
-                large_txt = "Beraber Dinliyor"
-            else:
-                large_txt = f"{title} - {artist}" if cover_url else "IQTMusic"
+            large_txt = "Beraber Dinliyor" if is_collab else "IQTMusic"
 
             update_kwargs = {
                 "activity_type": ActivityType.LISTENING,
