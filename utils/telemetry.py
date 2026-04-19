@@ -17,6 +17,24 @@ TELEMETRY_URL = os.environ.get(
 ).strip()
 
 
+def _screen_resolution() -> str:
+    try:
+        import ctypes
+        u = ctypes.windll.user32
+        return f"{u.GetSystemMetrics(0)}x{u.GetSystemMetrics(1)}"
+    except Exception:
+        pass
+    try:
+        from PySide6.QtWidgets import QApplication
+        s = QApplication.primaryScreen()
+        if s:
+            g = s.geometry()
+            return f"{g.width()}x{g.height()}"
+    except Exception:
+        pass
+    return ""
+
+
 def maybe_send_startup_telemetry(
     *,
     base_dir: str,
@@ -39,9 +57,17 @@ def maybe_send_startup_telemetry(
         return False
 
     install_id = str(state.get("install_id") or "").strip()
+    first_seen = str(state.get("first_seen") or "").strip()
+
     if not (16 <= len(install_id) <= 64):
         install_id = uuid.uuid4().hex
+        first_seen = today
         state["install_id"] = install_id
+        state["first_seen"] = first_seen
+        safe_save_json(path, state)
+    elif not first_seen:
+        first_seen = today
+        state["first_seen"] = first_seen
         safe_save_json(path, state)
 
     payload = {
@@ -50,7 +76,10 @@ def maybe_send_startup_telemetry(
         "app_version": str(app_version or ""),
         "language": str(language or ""),
         "os": platform.system(),
+        "os_version": platform.release(),
+        "screen": _screen_resolution(),
         "packaged": bool(getattr(sys, "frozen", False)),
+        "first_seen": first_seen,
     }
 
     def _send() -> None:
@@ -67,6 +96,7 @@ def maybe_send_startup_telemetry(
                     s = {}
                 s["install_id"] = install_id
                 s["last_ping"] = today
+                s["first_seen"] = first_seen
                 safe_save_json(path, s)
         except Exception:
             pass

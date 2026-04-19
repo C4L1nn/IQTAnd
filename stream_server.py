@@ -152,11 +152,17 @@ def _upstash(cmd: list) -> None:
         pass
 
 
-def _record_ping(install_id: str) -> None:
+def _record_ping(install_id: str, meta: dict) -> None:
     today = datetime.now(timezone.utc).date().isoformat()
     _upstash(["SADD", "iqt:all", install_id])
     _upstash(["SADD", f"iqt:day:{today}", install_id])
     _upstash(["EXPIRE", f"iqt:day:{today}", 86400 * 35])
+    fields: list = []
+    for k, v in meta.items():
+        if v:
+            fields += [k, str(v)]
+    if fields:
+        _upstash(["HSET", f"iqt:meta:{install_id}"] + fields)
 
 
 def _extract_stream_url(video_id: str) -> str | None:
@@ -476,7 +482,15 @@ class StreamHandler(BaseHTTPRequestHandler):
         if not INSTALL_ID_RE.match(install_id):
             self._send_json(400, {"error": "Invalid install_id"})
             return
-        threading.Thread(target=_record_ping, args=(install_id,), daemon=True).start()
+        meta = {
+            "os":         _clean_str(payload.get("os"), 24),
+            "os_v":       _clean_str(payload.get("os_version"), 24),
+            "lang":       _clean_str(payload.get("language"), 12),
+            "ver":        _clean_str(payload.get("app_version"), 32),
+            "screen":     _clean_str(payload.get("screen"), 16),
+            "first_seen": _clean_str(payload.get("first_seen"), 12),
+        }
+        threading.Thread(target=_record_ping, args=(install_id, meta), daemon=True).start()
         self._send_json(202, {"ok": True})
 
     def _send_json(self, code: int, data):
